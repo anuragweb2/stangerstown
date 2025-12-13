@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Users, History, Globe, MessageCircle, X, Wifi, Heart, ArrowLeft, Send, UserPlus, Check, Trash2, Image as ImageIcon, Mic, Square, MapPin, Smile, Clock, Search, Info } from 'lucide-react';
+import { Users, History, Globe, MessageCircle, X, Wifi, Heart, ArrowLeft, Send, UserPlus, Check, Trash2, Image as ImageIcon, Mic, Square, MapPin, Smile, Clock, Search, Info, UserCheck } from 'lucide-react';
 import { UserProfile, PresenceState, RecentPeer, Message, ChatMode, SessionType, Friend, FriendRequest, DirectMessageEvent, DirectStatusEvent, ReplyInfo } from '../types';
 import { clsx } from 'clsx';
 import { MessageBubble } from './MessageBubble';
@@ -697,13 +697,7 @@ export const SocialHub = React.memo<SocialHubProps>(({
 
                          return (
                         <div key={peer.id} 
-                             onClick={() => {
-                                 if (areFriends) {
-                                     openPrivateChat(targetId, peer.profile);
-                                 } else {
-                                     setViewingProfile({ id: targetId, profile: peer.profile });
-                                 }
-                             }}
+                             onClick={() => setViewingProfile({ id: targetId, profile: peer.profile })}
                              className="flex items-center justify-between p-3 bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/5 cursor-pointer hover:shadow-md transition-all duration-100 group active:scale-[0.99] relative"
                         >
                           <div className="flex items-center gap-3">
@@ -715,7 +709,7 @@ export const SocialHub = React.memo<SocialHubProps>(({
                             <div className="min-w-0"><div className="text-sm font-bold text-slate-900 dark:text-white truncate">{peer.profile.username}</div><div className="text-xs text-slate-500">{new Date(peer.metAt).toLocaleDateString()}</div></div>
                           </div>
                           <div className="p-2 text-slate-400 group-hover:text-brand-500">
-                              {areFriends ? <MessageCircle size={18} /> : <UserPlus size={18} />}
+                              {areFriends ? <UserCheck size={18} /> : <UserPlus size={18} />}
                           </div>
                         </div>
                       )})}
