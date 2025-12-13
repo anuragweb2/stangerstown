@@ -375,7 +375,12 @@ export const SocialHub = React.memo<SocialHubProps>(({
      return null; // Offline
   };
 
-  const isFriend = (peerId: string) => friends.some(f => f.id === peerId);
+  const isFriend = (peerId: string, profile?: UserProfile) => {
+      return friends.some(f => 
+        (profile?.uid && f.profile.uid && f.profile.uid === profile.uid) ||
+        f.id === peerId
+      );
+  };
   
   const formatLastSeen = (timestamp?: number) => {
      if (!timestamp) return 'Last seen offline';
@@ -458,7 +463,7 @@ export const SocialHub = React.memo<SocialHubProps>(({
                 <h2 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">Global Meet</h2>
               )}
               <div className="flex items-center gap-1">
-                {activePeer && isFriend(activePeer.id) && (
+                {activePeer && isFriend(activePeer.id, activePeer.profile) && (
                    <button onClick={() => setConfirmRemoveFriend(activePeer.id)} className="p-2 text-slate-400 hover:text-red-500 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-all duration-150 active:scale-90" title="Remove Friend"><Trash2 size={18} /></button>
                 )}
                 <button onClick={() => setIsOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-all duration-150 active:scale-90"><X size={20} /></button>
@@ -505,8 +510,11 @@ export const SocialHub = React.memo<SocialHubProps>(({
                       </div>
                   </div>
                   <div className="p-6 border-t border-slate-100 dark:border-white/5 shrink-0 flex flex-col gap-3 bg-white/50 dark:bg-white/5 backdrop-blur-md">
-                      <Button fullWidth onClick={() => openPrivateChat(viewingProfile.id, viewingProfile.profile)}><MessageCircle size={18}/> Message</Button>
-                      {!isFriend(viewingProfile.id) && (<Button variant="secondary" fullWidth onClick={() => handleFriendRequest(viewingProfile.id)}><UserPlus size={18}/> Add Friend</Button>)}
+                      {isFriend(viewingProfile.id, viewingProfile.profile) ? (
+                        <Button fullWidth onClick={() => openPrivateChat(viewingProfile.id, viewingProfile.profile)}><MessageCircle size={18}/> Message</Button>
+                      ) : (
+                        <Button fullWidth onClick={() => handleFriendRequest(viewingProfile.id)}><UserPlus size={18}/> Add Friend</Button>
+                      )}
                   </div>
                </div>
             )}
@@ -685,9 +693,19 @@ export const SocialHub = React.memo<SocialHubProps>(({
                          const onlineMatch = onlineUsers.find(u => u.profile?.uid && peer.profile.uid && u.profile.uid === peer.profile.uid);
                          const targetId = onlineMatch ? onlineMatch.peerId : peer.peerId;
                          const isOnline = !!onlineMatch;
+                         const areFriends = isFriend(targetId, peer.profile);
 
                          return (
-                        <div key={peer.id} onClick={() => openPrivateChat(targetId, peer.profile)} className="flex items-center justify-between p-3 bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/5 cursor-pointer hover:shadow-md transition-all duration-100 group active:scale-[0.99] relative">
+                        <div key={peer.id} 
+                             onClick={() => {
+                                 if (areFriends) {
+                                     openPrivateChat(targetId, peer.profile);
+                                 } else {
+                                     setViewingProfile({ id: targetId, profile: peer.profile });
+                                 }
+                             }}
+                             className="flex items-center justify-between p-3 bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/5 cursor-pointer hover:shadow-md transition-all duration-100 group active:scale-[0.99] relative"
+                        >
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-500 text-lg font-bold shrink-0 relative">
                               {peer.profile.username[0].toUpperCase()}
@@ -696,7 +714,9 @@ export const SocialHub = React.memo<SocialHubProps>(({
                             </div>
                             <div className="min-w-0"><div className="text-sm font-bold text-slate-900 dark:text-white truncate">{peer.profile.username}</div><div className="text-xs text-slate-500">{new Date(peer.metAt).toLocaleDateString()}</div></div>
                           </div>
-                          <div className="p-2 text-slate-400 group-hover:text-brand-500"><MessageCircle size={18} /></div>
+                          <div className="p-2 text-slate-400 group-hover:text-brand-500">
+                              {areFriends ? <MessageCircle size={18} /> : <UserPlus size={18} />}
+                          </div>
                         </div>
                       )})}
                       {filteredRecentPeers.length === 0 && <div className="text-center text-slate-500 py-10">{searchQuery ? 'No matching history.' : 'No recent history.'}</div>}
