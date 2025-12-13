@@ -100,6 +100,14 @@ export const SocialHub = React.memo<SocialHubProps>(({
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const globalToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Helper to generate a stable storage key (using UID if available, else PeerID)
+  const getStorageKey = (peerId: string, profile?: UserProfile) => {
+    if (profile?.uid) {
+       return `chat_history_uid_${profile.uid}`;
+    }
+    return `chat_history_${peerId}`;
+  };
+
   useEffect(() => {
     const checkAnchor = () => {
        const el = document.getElementById('social-hub-trigger-anchor');
@@ -157,61 +165,114 @@ export const SocialHub = React.memo<SocialHubProps>(({
     if (storedRecents) try { setRecentPeers(JSON.parse(storedRecents)); } catch (e) {}
   }, [isOpen, activeTab, incomingDirectMessage]);
 
+  // --- HISTORY LOADING ---
   useEffect(() => {
     if (activePeer) {
-      const storageKey = `chat_history_${activePeer.id}`;
+      const storageKey = getStorageKey(activePeer.id, activePeer.profile);
       const savedParams = localStorage.getItem(storageKey);
-      try { setLocalChatHistory(savedParams ? JSON.parse(savedParams) : []); } catch (e) { setLocalChatHistory([]); }
-      setUnreadCounts(prev => { const n = { ...prev }; delete n[activePeer.id]; return n; });
+      
+      // Fallback check for legacy ID-based storage if UID-based is empty
+      if (!savedParams && activePeer.profile.uid) {
+         const legacyKey = `chat_history_${activePeer.id}`;
+         const legacyParams = localStorage.getItem(legacyKey);
+         if (legacyParams) {
+             // Migrate or just read
+             localStorage.setItem(storageKey, legacyParams);
+             setLocalChatHistory(JSON.parse(legacyParams));
+             // Don't delete legacy yet for safety
+         } else {
+             setLocalChatHistory([]);
+         }
+      } else {
+         try { setLocalChatHistory(savedParams ? JSON.parse(savedParams) : []); } catch (e) { setLocalChatHistory([]); }
+      }
+      
+      // Clear unread counts for this user (check both ID and UID)
+      setUnreadCounts(prev => { 
+        const n = { ...prev }; 
+        delete n[activePeer.id];
+        if (activePeer.profile.uid) delete n[activePeer.profile.uid];
+        return n; 
+      });
     }
   }, [activePeer]);
 
+  // --- INCOMING MESSAGE HANDLING ---
   useEffect(() => {
     if (incomingDirectMessage) {
       const { peerId, message } = incomingDirectMessage;
-      const storageKey = `chat_history_${peerId}`;
+      
+      // Attempt to resolve sender profile from message, friends, or online users
+      let senderProfile = message.senderProfile;
+      if (!senderProfile) {
+         const friend = friends.find(f => f.id === peerId || (f.profile.uid && message.senderProfile?.uid === f.profile.uid));
+         if (friend) senderProfile = friend.profile;
+      }
+      if (!senderProfile) {
+         const online = onlineUsers.find(u => u.peerId === peerId);
+         if (online) senderProfile = online.profile;
+      }
+
+      const storageKey = getStorageKey(peerId, senderProfile);
+      
       const existingHistory = localStorage.getItem(storageKey);
       let history: Message[] = existingHistory ? JSON.parse(existingHistory) : [];
+      
       if (!history.some(m => m.id === message.id)) {
         history.push(message);
         localStorage.setItem(storageKey, JSON.stringify(history));
-        if (activePeer?.id === peerId) setLocalChatHistory(history);
-        else setUnreadCounts(prev => ({ ...prev, [peerId]: (prev[peerId] || 0) + 1 }));
+        
+        // Update view if active
+        if (activePeer?.id === peerId || (activePeer?.profile.uid && senderProfile?.uid === activePeer.profile.uid)) {
+           setLocalChatHistory(history);
+        } else {
+           // Track unread using stable ID if possible
+           const trackId = senderProfile?.uid || peerId;
+           setUnreadCounts(prev => ({ ...prev, [trackId]: (prev[trackId] || 0) + 1 }));
+        }
       }
     }
-  }, [incomingDirectMessage, activePeer]);
+  }, [incomingDirectMessage, activePeer, friends, onlineUsers]);
 
+  // --- INCOMING REACTION HANDLING ---
   useEffect(() => {
     if (incomingReaction) {
       const targetPeerId = incomingReaction.peerId;
-      if (activePeer && activePeer.id === targetPeerId) {
+      
+      // Resolve Profile/UID for key lookup
+      let targetProfile: UserProfile | undefined;
+      const friend = friends.find(f => f.id === targetPeerId);
+      if (friend) targetProfile = friend.profile;
+      
+      // Key logic
+      const storageKey = getStorageKey(targetPeerId, targetProfile);
+      
+      // Update Logic
+      const updateHistory = (prev: Message[]) => {
+          return prev.map(msg => {
+             if (msg.id === incomingReaction.messageId) {
+               if (msg.reactions?.some(r => r.emoji === incomingReaction.emoji && r.sender === 'stranger')) return msg;
+               return { ...msg, reactions: [...(msg.reactions || []), { emoji: incomingReaction.emoji, sender: 'stranger' as const }] };
+             }
+             return msg;
+          });
+      };
+
+      if (activePeer && (activePeer.id === targetPeerId || (activePeer.profile.uid && targetProfile?.uid === activePeer.profile.uid))) {
          setLocalChatHistory(prev => {
-            const updated = prev.map(msg => {
-               if (msg.id === incomingReaction.messageId) {
-                 if (msg.reactions?.some(r => r.emoji === incomingReaction.emoji && r.sender === 'stranger')) return msg;
-                 return { ...msg, reactions: [...(msg.reactions || []), { emoji: incomingReaction.emoji, sender: 'stranger' as const }] };
-               }
-               return msg;
-            });
-            localStorage.setItem(`chat_history_${targetPeerId}`, JSON.stringify(updated));
+            const updated = updateHistory(prev);
+            localStorage.setItem(storageKey, JSON.stringify(updated));
             return updated;
          });
       } else {
-         const storageKey = `chat_history_${targetPeerId}`;
          try {
             const hist = JSON.parse(localStorage.getItem(storageKey) || '[]');
-            const updated = hist.map((msg: Message) => {
-               if (msg.id === incomingReaction.messageId) {
-                  if (msg.reactions?.some((r: any) => r.emoji === incomingReaction.emoji && r.sender === 'stranger')) return msg;
-                  return { ...msg, reactions: [...(msg.reactions || []), { emoji: incomingReaction.emoji, sender: 'stranger' as const }] };
-               }
-               return msg;
-            });
+            const updated = updateHistory(hist);
             localStorage.setItem(storageKey, JSON.stringify(updated));
          } catch(e) {}
       }
     }
-  }, [incomingReaction, activePeer]);
+  }, [incomingReaction, activePeer, friends]);
 
   useEffect(() => {
     if (incomingDirectStatus?.type === 'typing') {
@@ -238,12 +299,15 @@ export const SocialHub = React.memo<SocialHubProps>(({
   };
 
   const addMessageToLocal = (msg: Message, peerId: string) => {
-      const storageKey = `chat_history_${peerId}`;
+      // Use active peer profile to determine key
+      if (!activePeer) return;
+      const storageKey = getStorageKey(activePeer.id, activePeer.profile);
+      
       let history: Message[] = [];
       try { history = JSON.parse(localStorage.getItem(storageKey) || '[]'); } catch(e){}
       history.push(msg);
       try { localStorage.setItem(storageKey, JSON.stringify(history)); } catch(e){}
-      if (activePeer?.id === peerId) setLocalChatHistory(history);
+      setLocalChatHistory(history);
   };
 
   const handlePrivateSubmit = (e: React.FormEvent) => {
@@ -324,7 +388,8 @@ export const SocialHub = React.memo<SocialHubProps>(({
     if (activePeer) {
       setLocalChatHistory(prev => {
          const updated = prev.map(msg => msg.id === messageId ? { ...msg, reactions: [...(msg.reactions || []), { emoji, sender: 'me' as const }] } : msg);
-         localStorage.setItem(`chat_history_${activePeer.id}`, JSON.stringify(updated));
+         const storageKey = getStorageKey(activePeer.id, activePeer.profile);
+         localStorage.setItem(storageKey, JSON.stringify(updated));
          return updated;
       });
       sendDirectReaction?.(activePeer.id, messageId, emoji);
@@ -345,7 +410,13 @@ export const SocialHub = React.memo<SocialHubProps>(({
     if (profile) {
       setActivePeer({ id: peerId, profile });
       onCallPeer(peerId, profile);
-      setUnreadCounts(prev => { const n = { ...prev }; delete n[peerId]; return n; });
+      // Clear unread
+      setUnreadCounts(prev => { 
+        const n = { ...prev }; 
+        delete n[peerId];
+        if (profile.uid) delete n[profile.uid];
+        return n; 
+      });
       setViewingProfile(null);
     }
   };
@@ -460,7 +531,7 @@ export const SocialHub = React.memo<SocialHubProps>(({
                        {onlineUsers.some(u => u.peerId === activePeer.id) ? (
                           <span className="text-xs text-emerald-500 font-medium flex items-center gap-1"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"/> Online</span>
                        ) : (
-                          <span className="text-xs text-slate-400 font-medium">{formatLastSeen(friends.find(f => f.id === activePeer.id)?.lastSeen)}</span>
+                          <span className="text-xs text-slate-400 font-medium">{formatLastSeen(friends.find(f => f.id === activePeer.id || (f.profile.uid && activePeer.profile.uid === f.profile.uid))?.lastSeen)}</span>
                        )}
                      </div>
                    </div>
@@ -546,7 +617,7 @@ export const SocialHub = React.memo<SocialHubProps>(({
                            {tab === 'recent' && <History size={16} />} 
                            {tab === 'global' && <Globe size={16} />}
                            {tab === 'global' ? 'Global Meet' : tab}
-                           {tab === 'friends' && (friends.some(f => unreadCounts[f.id] > 0) || friendRequests.length > 0) && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full" />}
+                           {tab === 'friends' && (friends.some(f => unreadCounts[f.id] > 0 || (f.profile.uid && unreadCounts[f.profile.uid] > 0)) || friendRequests.length > 0) && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full" />}
                            {tab === 'recent' && recentPeers.some(p => unreadCounts[p.peerId] > 0) && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full" />}
                         </button>
                      ))}
@@ -637,12 +708,13 @@ export const SocialHub = React.memo<SocialHubProps>(({
                             {onlineFriends.map((friend) => {
                                // Use the current ID for the click handler
                                const currentId = resolveCurrentPeerId(friend);
+                               const count = unreadCounts[friend.id] || (friend.profile.uid ? unreadCounts[friend.profile.uid] : 0);
                                return (
                                <div key={friend.id} onClick={() => currentId && openPrivateChat(currentId, friend.profile)} className="flex items-center justify-between p-3 bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/5 cursor-pointer hover:shadow-md transition-all duration-100 group hover:border-brand-200 dark:hover:border-white/10 active:scale-[0.99]">
                                  <div className="flex items-center gap-3">
                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-400 to-violet-500 flex items-center justify-center text-white font-bold shrink-0 relative">
                                      {friend.profile.username[0].toUpperCase()}
-                                     {unreadCounts[friend.id] > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border border-white dark:border-slate-900" />}
+                                     {count > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border border-white dark:border-slate-900" />}
                                      <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-[#0A0A0F] rounded-full"></span>
                                    </div>
                                    <div className="min-w-0">
@@ -661,12 +733,14 @@ export const SocialHub = React.memo<SocialHubProps>(({
                        {offlineFriends.length > 0 && (
                           <div className="space-y-3">
                             <div className="text-xs font-bold text-slate-400 uppercase tracking-widest pl-1">Offline</div>
-                            {offlineFriends.map((friend) => (
+                            {offlineFriends.map((friend) => {
+                               const count = unreadCounts[friend.id] || (friend.profile.uid ? unreadCounts[friend.profile.uid] : 0);
+                               return (
                                <div key={friend.id} onClick={() => openPrivateChat(friend.id, friend.profile)} className="flex items-center justify-between p-3 bg-white dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/5 cursor-pointer hover:shadow-md transition-all duration-100 group grayscale-[0.5] hover:grayscale-0 active:scale-[0.99]">
                                  <div className="flex items-center gap-3">
                                    <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-500 dark:text-slate-300 font-bold shrink-0 relative">
                                      {friend.profile.username[0].toUpperCase()}
-                                     {unreadCounts[friend.id] > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border border-white dark:border-slate-900" />}
+                                     {count > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border border-white dark:border-slate-900" />}
                                    </div>
                                    <div className="min-w-0">
                                      <div className="text-sm font-bold text-slate-700 dark:text-slate-300 truncate">{friend.profile.username}</div>
@@ -674,7 +748,7 @@ export const SocialHub = React.memo<SocialHubProps>(({
                                    </div>
                                  </div>
                                </div>
-                             ))}
+                             )})}
                           </div>
                        )}
 
@@ -700,6 +774,7 @@ export const SocialHub = React.memo<SocialHubProps>(({
                          const targetId = onlineMatch ? onlineMatch.peerId : peer.peerId;
                          const isOnline = !!onlineMatch;
                          const areFriends = isFriend(targetId, peer.profile);
+                         const count = unreadCounts[peer.id] || (peer.profile.uid ? unreadCounts[peer.profile.uid] : 0);
 
                          return (
                         <div key={peer.id} 
@@ -709,7 +784,7 @@ export const SocialHub = React.memo<SocialHubProps>(({
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-500 text-lg font-bold shrink-0 relative">
                               {peer.profile.username[0].toUpperCase()}
-                              {unreadCounts[peer.id] > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border border-white dark:border-slate-900" />}
+                              {count > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border border-white dark:border-slate-900" />}
                               {isOnline && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-[#0A0A0F] rounded-full"></span>}
                             </div>
                             <div className="min-w-0"><div className="text-sm font-bold text-slate-900 dark:text-white truncate">{peer.profile.username}</div><div className="text-xs text-slate-500">{new Date(peer.metAt).toLocaleDateString()}</div></div>

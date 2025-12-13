@@ -33,6 +33,7 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
   const peerRef = useRef<Peer | null>(null);
   const mainConnRef = useRef<DataConnection | null>(null);
   const directConnsRef = useRef<Map<string, DataConnection>>(new Map());
+  const directPeerProfilesRef = useRef<Map<string, UserProfile>>(new Map()); // Store profiles for direct connections
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const isMatchmakerRef = useRef(false);
@@ -67,6 +68,7 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
             
             if (isOnline) {
                // Update last seen to now if they are online
+               // Debounce update to prevent constant writes
                if (!friend.lastSeen || (Date.now() - friend.lastSeen > 60000)) {
                   changed = true;
                   return { ...friend, lastSeen: Date.now() };
@@ -159,8 +161,11 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
              type: row.type as any,
              sender: 'stranger',
              timestamp: new Date(row.created_at).getTime(),
-             status: 'sent'
+             status: 'sent',
+             senderPeerId: row.sender_id
           };
+          // For offline messages, we might not have the full profile immediately available
+          // logic in SocialHub will try to resolve it via friends list
           setIncomingDirectMessage({ peerId: row.sender_id, message: msg });
        });
     };
@@ -279,6 +284,8 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
       const payload = data as PeerData;
       
       if (payload.type === 'message') {
+        const senderProfile = !isMain ? directPeerProfilesRef.current.get(conn.peer) : undefined;
+        
         const newMsg: Message = {
           id: payload.id || Date.now().toString(),
           text: payload.dataType === 'text' ? payload.payload : undefined,
@@ -287,7 +294,9 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
           timestamp: Date.now(),
           type: payload.dataType || 'text',
           reactions: [],
-          replyTo: payload.replyTo
+          replyTo: payload.replyTo,
+          senderProfile: senderProfile,
+          senderPeerId: conn.peer
         };
         
         if (isMain) {
@@ -302,6 +311,7 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
       
       else if (payload.type === 'profile') {
          const profile = payload.payload as UserProfile;
+         
          if (isMain) {
             setPartnerProfile(profile);
             setMessages(prev => [
@@ -335,6 +345,12 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
                
                localStorage.setItem('recent_peers', JSON.stringify(recents.slice(0, 50)));
             } catch(e) { console.error(e); }
+         } else {
+            // Direct Connection: Store profile map
+            directPeerProfilesRef.current.set(conn.peer, profile);
+            
+            // If this was a reconnection for a friend, we might want to trigger a state update?
+            // But usually messages drive the state.
          }
       }
       
@@ -423,6 +439,7 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
         }
       } else {
          directConnsRef.current.delete(conn.peer);
+         directPeerProfilesRef.current.delete(conn.peer);
          setActiveDirectConnections(prev => { const n = new Set(prev); n.delete(conn.peer); return n; });
       }
     });
