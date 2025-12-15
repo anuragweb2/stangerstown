@@ -15,15 +15,10 @@ It works out of the box with the provided credentials.
 2. **Match Found**: Uses Realtime Presence to see if anyone else is waiting.
 3. **P2P Connection**: If a waiter is found, connects instantly via PeerJS.
 
-## 🛠️ Environment Variables
-
-The project comes pre-configured for instant deployment. 
-You only need to set `API_KEY` (Google Gemini API) in your Vercel project settings if you want the "AI Chat" mode to work.
-
 ## 📦 Tech Stack
 
 - **React / Vite** (Frontend)
 - **Supabase Realtime** (Signaling/Lobby)
 - **PeerJS** (WebRTC P2P Data)
 - **TailwindCSS** (Styling)
-- **Google Gemini** (AI Persona)
+
