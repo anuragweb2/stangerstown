@@ -6,6 +6,7 @@ import { clsx } from 'clsx';
 import { MessageBubble } from './MessageBubble';
 import { Button } from './Button';
 import { ImageViewer } from './ImageViewer';
+import { ImageConfirmationModal } from './ImageConfirmationModal';
 
 interface SocialHubProps {
   onlineUsers: PresenceState[];
@@ -39,13 +40,6 @@ interface SocialHubProps {
   rejectFriendRequest?: (peerId: string) => void;
   isPeerConnected?: (peerId: string) => boolean;
 }
-
-const TIMER_OPTIONS = [
-  { label: '∞', value: 0, icon: Infinity },
-  { label: '5s', value: 5000 },
-  { label: '30s', value: 30000 },
-  { label: '1m', value: 60000 },
-];
 
 export const SocialHub = React.memo<SocialHubProps>(({ 
   onlineUsers, 
@@ -99,8 +93,8 @@ export const SocialHub = React.memo<SocialHubProps>(({
   const [viewingProfile, setViewingProfile] = useState<{id: string, profile: UserProfile} | null>(null);
   const [confirmRemoveFriend, setConfirmRemoveFriend] = useState<string | null>(null);
   const [triggerTarget, setTriggerTarget] = useState<HTMLElement | null>(null);
-  const [imageTimerIndex, setImageTimerIndex] = useState(0);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const privateMessagesEndRef = useRef<HTMLDivElement>(null);
@@ -109,9 +103,6 @@ export const SocialHub = React.memo<SocialHubProps>(({
   const audioChunksRef = useRef<Blob[]>([]);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const globalToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const currentTimerOption = TIMER_OPTIONS[imageTimerIndex];
-  const TimerIcon = currentTimerOption.icon;
 
   // Helper to generate a stable storage key (using UID if available, else PeerID)
   const getStorageKey = (peerId: string, profile?: UserProfile) => {
@@ -159,6 +150,13 @@ export const SocialHub = React.memo<SocialHubProps>(({
       if (globalToastTimerRef.current) clearTimeout(globalToastTimerRef.current);
     };
   }, [activeTab]);
+
+  // Automatically hide Global Toast when typing
+  useEffect(() => {
+    if (globalInput.length > 0 && showGlobalToast) {
+      setShowGlobalToast(false);
+    }
+  }, [globalInput, showGlobalToast]);
 
   // Restore legacy recents logic
   useEffect(() => {
@@ -350,23 +348,25 @@ export const SocialHub = React.memo<SocialHubProps>(({
     if (file && activePeer && sendDirectImage) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        const base64 = reader.result as string;
-        const newMsgId = Date.now().toString() + Math.random().toString(36).substring(2);
-        
-        const expiry = TIMER_OPTIONS[imageTimerIndex].value;
-        const expiresAt = expiry > 0 ? Date.now() + expiry : undefined;
-        
-        const newMsg: Message = { id: newMsgId, fileData: base64, type: 'image', sender: 'me', timestamp: Date.now(), reactions: [], status: 'sent', expiryDuration: expiry, expiresAt };
-        addMessageToLocal(newMsg, activePeer.id);
-        sendDirectImage(activePeer.id, base64, newMsgId, expiry > 0 ? expiry : undefined);
+        setPendingImage(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
     if (privateFileInputRef.current) privateFileInputRef.current.value = '';
   };
   
-  const toggleImageTimer = () => {
-    setImageTimerIndex((prev) => (prev + 1) % TIMER_OPTIONS.length);
+  const handleConfirmPrivateImage = (expiryDuration: number) => {
+    if (pendingImage && activePeer && sendDirectImage) {
+        const base64 = pendingImage;
+        const newMsgId = Date.now().toString() + Math.random().toString(36).substring(2);
+        
+        const expiresAt = expiryDuration > 0 ? Date.now() + expiryDuration : undefined;
+        
+        const newMsg: Message = { id: newMsgId, fileData: base64, type: 'image', sender: 'me', timestamp: Date.now(), reactions: [], status: 'sent', expiryDuration: expiryDuration, expiresAt };
+        addMessageToLocal(newMsg, activePeer.id);
+        sendDirectImage(activePeer.id, base64, newMsgId, expiryDuration > 0 ? expiryDuration : undefined);
+        setPendingImage(null);
+    }
   };
 
   const startPrivateRecording = async () => {
@@ -889,19 +889,6 @@ export const SocialHub = React.memo<SocialHubProps>(({
                      )}
                      <div className="flex gap-2 items-end">
                        <div className="flex flex-col items-center gap-1 shrink-0">
-                          <button 
-                              type="button" 
-                              onClick={toggleImageTimer} 
-                              className="p-1.5 rounded-lg text-[10px] font-bold bg-slate-200 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-white/10 flex items-center gap-0.5 w-10 justify-center transition-colors"
-                              title="Image Timer"
-                          >
-                              {TimerIcon ? (
-                                <TimerIcon size={12} />
-                              ) : (
-                                currentTimerOption.label
-                              )}
-                          </button>
-                          
                           <input type="file" accept="image/*" className="hidden" ref={privateFileInputRef} onChange={handlePrivateImageUpload} />
                           <button type="button" onClick={() => privateFileInputRef.current?.click()} className="p-2.5 text-slate-400 hover:text-brand-500 hover:bg-white dark:hover:bg-white/10 rounded-xl transition-all duration-150 active:scale-90 shrink-0"><ImageIcon size={22} /></button>
                        </div>
@@ -915,6 +902,13 @@ export const SocialHub = React.memo<SocialHubProps>(({
                   </form>
                </div>
             )}
+
+            <ImageConfirmationModal 
+              isOpen={!!pendingImage}
+              imageSrc={pendingImage}
+              onClose={() => setPendingImage(null)}
+              onConfirm={handleConfirmPrivateImage}
+            />
 
             {previewImage && (
                <ImageViewer src={previewImage} onClose={() => setPreviewImage(null)} />

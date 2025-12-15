@@ -10,6 +10,7 @@ import { Header } from './components/Header';
 import { LandingPage } from './components/LandingPage';
 import Loader from './components/Loader';
 import { ImageViewer } from './components/ImageViewer';
+import { ImageConfirmationModal } from './components/ImageConfirmationModal';
 import { clsx } from 'clsx';
 
 // Lazy Load Heavy Components to reduce initial bundle size
@@ -38,13 +39,6 @@ const getInitialTheme = (): 'light' | 'dark' => {
   return 'dark';
 };
 
-const TIMER_OPTIONS = [
-  { label: '∞', value: 0, icon: Infinity },
-  { label: '5s', value: 5000 },
-  { label: '30s', value: 30000 },
-  { label: '1m', value: 60000 },
-];
-
 export default function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -60,8 +54,8 @@ export default function App() {
   const [hasChatted, setHasChatted] = useState(false);
   const [showSafetyWarning, setShowSafetyWarning] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ReplyInfo | null>(null);
-  const [imageTimerIndex, setImageTimerIndex] = useState(0);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
   
   const [isRecording, setIsRecording] = useState(false);
   
@@ -288,16 +282,18 @@ export default function App() {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        const expiry = TIMER_OPTIONS[imageTimerIndex].value;
-        sendImage(reader.result as string, expiry > 0 ? expiry : undefined);
+        setPendingImage(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const toggleImageTimer = () => {
-    setImageTimerIndex((prev) => (prev + 1) % TIMER_OPTIONS.length);
+  const handleConfirmImage = (expiryDuration: number) => {
+    if (pendingImage) {
+      sendImage(pendingImage, expiryDuration > 0 ? expiryDuration : undefined);
+      setPendingImage(null);
+    }
   };
 
   const startRecording = async () => {
@@ -367,9 +363,6 @@ export default function App() {
         />
       );
     }
-
-    const currentTimerOption = TIMER_OPTIONS[imageTimerIndex];
-    const TimerIcon = currentTimerOption.icon;
 
     return (
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
@@ -492,22 +485,8 @@ export default function App() {
             <form onSubmit={handleSendMessage} className="flex gap-2 items-end relative">
               <div id="social-hub-trigger-anchor" className="absolute bottom-[calc(100%+8px)] right-0 z-30 w-12 h-12 pointer-events-none"></div>
               
-              {/* Image Input & Timer */}
+              {/* Image Input */}
               <div className="flex flex-col items-center gap-1 shrink-0">
-                 <button 
-                    type="button" 
-                    onClick={toggleImageTimer} 
-                    className="p-1.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10 flex items-center gap-0.5 w-10 justify-center transition-colors"
-                    title="Image Timer"
-                    disabled={!isConnected}
-                 >
-                    {TimerIcon ? (
-                       <TimerIcon size={12} />
-                    ) : (
-                       currentTimerOption.label
-                    )}
-                 </button>
-                 
                  <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageUpload} disabled={!isConnected}/>
                  <button type="button" onClick={() => fileInputRef.current?.click()} className="p-3 text-slate-400 hover:text-brand-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all duration-150 active:scale-90 disabled:opacity-50"><ImageIcon size={24} /></button>
               </div>
@@ -620,6 +599,13 @@ export default function App() {
          </div>
       )}
       
+      <ImageConfirmationModal 
+        isOpen={!!pendingImage}
+        imageSrc={pendingImage}
+        onClose={() => setPendingImage(null)}
+        onConfirm={handleConfirmImage}
+      />
+
       {previewImage && (
          <ImageViewer src={previewImage} onClose={() => setPreviewImage(null)} />
       )}
