@@ -343,7 +343,8 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
           senderProfile: senderProfile,
           senderPeerId: conn.peer,
           expiryDuration: payload.expiryDuration,
-          expiresAt: expiresAt
+          expiresAt: expiresAt,
+          isVanish: payload.isVanish, // Sync vanish state
         };
         
         if (isMain) {
@@ -399,7 +400,10 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
       }
 
       else if (payload.type === 'vanish_mode') {
-         if (isMain) setRemoteVanishMode(payload.payload);
+         if (isMain) {
+            setRemoteVanishMode(payload.payload);
+            setNotification(payload.payload ? "Stranger turned on Vanish Mode" : "Stranger turned off Vanish Mode");
+         }
       }
       
       else if (payload.type === 'reaction') {
@@ -518,31 +522,31 @@ export const useHumanChat = (userProfile: UserProfile | null, persistentId?: str
     setStatus(ChatMode.IDLE);
   };
 
-  const sendMessage = (text: string, replyTo?: ReplyInfo) => {
+  const sendMessage = (text: string, replyTo?: ReplyInfo, isVanish?: boolean) => {
     const id = Date.now().toString();
-    const msg: Message = { id, text, sender: 'me', timestamp: Date.now(), type: 'text', reactions: [], status: 'sent', replyTo };
+    const msg: Message = { id, text, sender: 'me', timestamp: Date.now(), type: 'text', reactions: [], status: 'sent', replyTo, isVanish };
     setMessages(prev => [...prev, msg]);
     if (mainConnRef.current?.open) {
-      mainConnRef.current.send({ type: 'message', payload: text, dataType: 'text', id, replyTo });
+      mainConnRef.current.send({ type: 'message', payload: text, dataType: 'text', id, replyTo, isVanish });
     }
   };
 
-  const sendImage = (base64: string, expiryDuration?: number) => {
+  const sendImage = (base64: string, expiryDuration?: number, isVanish?: boolean) => {
     const id = Date.now().toString();
     const expiresAt = expiryDuration ? Date.now() + expiryDuration : undefined;
-    const msg: Message = { id, fileData: base64, sender: 'me', timestamp: Date.now(), type: 'image', reactions: [], status: 'sent', expiryDuration, expiresAt };
+    const msg: Message = { id, fileData: base64, sender: 'me', timestamp: Date.now(), type: 'image', reactions: [], status: 'sent', expiryDuration, expiresAt, isVanish };
     setMessages(prev => [...prev, msg]);
     if (mainConnRef.current?.open) {
-      mainConnRef.current.send({ type: 'message', payload: base64, dataType: 'image', id, expiryDuration });
+      mainConnRef.current.send({ type: 'message', payload: base64, dataType: 'image', id, expiryDuration, isVanish });
     }
   };
   
-  const sendAudio = (base64: string) => {
+  const sendAudio = (base64: string, isVanish?: boolean) => {
     const id = Date.now().toString();
-    const msg: Message = { id, fileData: base64, sender: 'me', timestamp: Date.now(), type: 'audio', reactions: [], status: 'sent' };
+    const msg: Message = { id, fileData: base64, sender: 'me', timestamp: Date.now(), type: 'audio', reactions: [], status: 'sent', isVanish };
     setMessages(prev => [...prev, msg]);
     if (mainConnRef.current?.open) {
-      mainConnRef.current.send({ type: 'message', payload: base64, dataType: 'audio', id });
+      mainConnRef.current.send({ type: 'message', payload: base64, dataType: 'audio', id, isVanish });
     }
   };
 

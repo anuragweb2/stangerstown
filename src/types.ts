@@ -59,6 +59,7 @@ export interface PeerData {
   id?: string; // For syncing message IDs across peers
   replyTo?: ReplyInfo; // Added for syncing replies
   expiryDuration?: number; // Added for disappearing images
+  isVanish?: boolean; // Added for syncing vanish mode per message
 }
 
 // Presence state for the lobby

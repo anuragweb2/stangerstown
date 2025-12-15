@@ -39,6 +39,12 @@ const getInitialTheme = (): 'light' | 'dark' => {
   return 'dark';
 };
 
+const LOADING_TEXTS = [
+  "Finding a stranger with similar vibes...",
+  "Looking for someone you’ll vibe with...",
+  "Get ready to meet someone new!"
+];
+
 export default function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -56,6 +62,8 @@ export default function App() {
   const [replyingTo, setReplyingTo] = useState<ReplyInfo | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [localNotification, setLocalNotification] = useState<string | null>(null);
+  const [loadingTextIndex, setLoadingTextIndex] = useState(0);
   
   const [isRecording, setIsRecording] = useState(false);
   
@@ -117,6 +125,19 @@ export default function App() {
     }
   }, [status]);
 
+  // Loading text cycle effect
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (status === ChatMode.SEARCHING || status === ChatMode.WAITING) {
+      interval = setInterval(() => {
+        setLoadingTextIndex((prev) => (prev + 1) % LOADING_TEXTS.length);
+      }, 2500); // Change text every 2.5 seconds
+    } else {
+      setLoadingTextIndex(0);
+    }
+    return () => clearInterval(interval);
+  }, [status]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       // Logic for vanish mode text messages
@@ -150,6 +171,14 @@ export default function App() {
     if (theme === 'dark') document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }, [theme]);
+
+  // Clear local notification after 3s
+  useEffect(() => {
+    if (localNotification) {
+      const timer = setTimeout(() => setLocalNotification(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [localNotification]);
 
   const toggleTheme = () => {
     setTheme(prev => {
@@ -214,10 +243,12 @@ export default function App() {
   };
 
   const handleUpdateSettings = (newSettings: AppSettings) => {
-    setSettings(newSettings);
+    // Check if vanish mode changed to show notification
     if (newSettings.vanishMode !== settings.vanishMode) {
-      sendVanishMode(newSettings.vanishMode);
+       setLocalNotification(newSettings.vanishMode ? "Vanish Mode Enabled" : "Vanish Mode Disabled");
+       sendVanishMode(newSettings.vanishMode);
     }
+    setSettings(newSettings);
   };
 
   const handleDirectCall = (peerId: string, profile?: UserProfile) => {
@@ -227,7 +258,7 @@ export default function App() {
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
-    sendMessage(inputText, replyingTo || undefined);
+    sendMessage(inputText, replyingTo || undefined, settings.vanishMode);
     if (settings.vanishMode) {
       setMessages(prev => {
         const last = prev[prev.length - 1];
@@ -281,8 +312,38 @@ export default function App() {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setPendingImage(reader.result as string);
+      reader.onload = (event) => {
+        // Compress Image Logic
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Max dimension 800px for faster P2P transfer
+          const MAX_SIZE = 800;
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // Compress to JPEG 0.6 quality
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          setPendingImage(compressedBase64);
+        };
+        img.src = event.target?.result as string;
       };
       reader.readAsDataURL(file);
     }
@@ -291,7 +352,7 @@ export default function App() {
 
   const handleConfirmImage = (expiryDuration: number) => {
     if (pendingImage) {
-      sendImage(pendingImage, expiryDuration > 0 ? expiryDuration : undefined);
+      sendImage(pendingImage, expiryDuration > 0 ? expiryDuration : undefined, settings.vanishMode);
       setPendingImage(null);
     }
   };
@@ -310,7 +371,7 @@ export default function App() {
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = () => {
-           sendAudio(reader.result as string);
+           sendAudio(reader.result as string, settings.vanishMode);
         };
         stream.getTracks().forEach(track => track.stop());
       };
@@ -371,8 +432,8 @@ export default function App() {
            <div className="absolute inset-0 z-30 bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
              <div className="relative mb-8"><Loader /></div>
              <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-3">Matching you...</h2>
-             <p className="text-slate-500 dark:text-slate-400 max-w-xs mx-auto animate-pulse mb-8">
-                Finding a stranger with similar vibes...
+             <p className="text-slate-500 dark:text-slate-400 max-w-xs mx-auto animate-pulse mb-8 min-h-[48px] flex items-center justify-center transition-all duration-300">
+                {LOADING_TEXTS[loadingTextIndex]}
              </p>
              <div className="flex flex-wrap justify-center gap-2 max-w-sm mx-auto mb-12">
                 {userProfile?.interests.map(i => (
@@ -429,9 +490,6 @@ export default function App() {
                   </>
                 ) : (
                   <>
-                    <div className="w-20 h-20 bg-brand-50 dark:bg-brand-900/10 rounded-full flex items-center justify-center text-brand-500 mb-2">
-                       <MessageCircle size={40} />
-                    </div>
                     <div className="text-center space-y-2">
                       <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Start Matching</h3>
                       <p className="text-slate-500 dark:text-slate-400 text-base max-w-xs mx-auto">
@@ -536,6 +594,7 @@ export default function App() {
             onEditProfile={() => setShowEditProfileModal(true)}
             onAddFriend={partnerPeerId ? sendFriendRequest : undefined}
             isFriend={isCurrentPartnerFriend}
+            isVanishMode={settings.vanishMode}
           />
         )}
 
@@ -619,10 +678,10 @@ export default function App() {
            </Suspense>
         )}
         
-        {notification && (
+        {(notification || localNotification) && (
            <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[150] animate-in slide-in-from-top-2 fade-in duration-300 pointer-events-none w-full max-w-sm px-4 flex justify-center">
               <div className="bg-slate-800/90 dark:bg-white/10 text-white backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-white/10 text-sm font-medium flex items-center gap-2 truncate max-w-full">
-                 <Bell size={16} className="text-brand-400 shrink-0" /> <span className="truncate">{notification}</span>
+                 <Bell size={16} className="text-brand-400 shrink-0" /> <span className="truncate">{localNotification || notification}</span>
               </div>
            </div>
         )}

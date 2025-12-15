@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Ghost, Moon, Sun, Settings, ArrowLeft, Edit2, AlertTriangle, UserPlus, Check, Heart } from 'lucide-react';
 import { ChatMode, UserProfile } from '../types';
+import { clsx } from 'clsx';
 
 interface HeaderProps {
   onlineCount: number;
@@ -13,6 +14,7 @@ interface HeaderProps {
   onEditProfile: () => void;
   onAddFriend?: () => void;
   isFriend?: boolean;
+  isVanishMode?: boolean; // Added prop
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
@@ -25,7 +27,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   onEditProfile,
   onAddFriend,
-  isFriend = false
+  isFriend = false,
+  isVanishMode = false
 }) => {
   const [showConfirmEnd, setShowConfirmEnd] = useState(false);
   const isConnected = mode === ChatMode.CONNECTED;
@@ -142,7 +145,12 @@ export const Header: React.FC<HeaderProps> = ({
                <button 
                  onClick={onOpenSettings}
                  aria-label="Settings"
-                 className="p-2 sm:p-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 rounded-full transition-all duration-150 active:scale-90"
+                 className={clsx(
+                   "p-2 sm:p-2.5 rounded-full transition-all duration-150 active:scale-90",
+                   isVanishMode 
+                     ? "text-brand-500 bg-brand-50 dark:bg-brand-900/30" 
+                     : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10"
+                 )}
                  title="Settings / Vanish Mode"
                >
                 <Ghost size={18} />

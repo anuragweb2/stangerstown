@@ -347,8 +347,38 @@ export const SocialHub = React.memo<SocialHubProps>(({
     const file = e.target.files?.[0];
     if (file && activePeer && sendDirectImage) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setPendingImage(reader.result as string);
+      reader.onload = (event) => {
+        // Compress Image Logic
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Max dimension 800px for faster P2P transfer
+          const MAX_SIZE = 800;
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // Compress to JPEG 0.6 quality
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          setPendingImage(compressedBase64);
+        };
+        img.src = event.target?.result as string;
       };
       reader.readAsDataURL(file);
     }

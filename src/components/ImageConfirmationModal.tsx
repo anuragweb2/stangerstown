@@ -12,9 +12,9 @@ interface ImageConfirmationModalProps {
 
 const TIMER_OPTIONS = [
   { label: 'Keep in chat', value: 0, icon: Infinity, desc: 'Visible forever' },
-  { label: '5 Seconds', value: 5000, icon: Timer, desc: 'Disappears quickly' },
   { label: '30 Seconds', value: 30000, icon: Timer, desc: 'Short view' },
   { label: '1 Minute', value: 60000, icon: Clock, desc: 'Standard expiry' },
+  { label: '3 Minutes', value: 180000, icon: Clock, desc: 'Longer expiry' },
 ];
 
 export const ImageConfirmationModal: React.FC<ImageConfirmationModalProps> = ({ 
